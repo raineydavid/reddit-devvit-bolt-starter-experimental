@@ -1,9 +1,9 @@
 import { Context } from '@devvit/public-api';
-import { getWordOfTheDay } from './words';
 import { RedisClient } from '@devvit/redis';
 
 type PostConfig = {
-  wordOfTheDay: string;
+  gameType: 'magic8ball';
+  createdAt: number;
 };
 
 const getPostConfigKey = (postId: string) => `post_config:${postId}` as const;
@@ -50,11 +50,10 @@ export const postConfigNew = async ({
   redis: Context['redis'] | RedisClient;
   postId: string;
 }): Promise<void> => {
-  const wordOfTheDay = getWordOfTheDay();
+  const config: PostConfig = {
+    gameType: 'magic8ball',
+    createdAt: Date.now(),
+  };
 
-  if (!wordOfTheDay) {
-    throw new Error('No word of the day found');
-  }
-
-  await redis.set(getPostConfigKey(postId), JSON.stringify({ wordOfTheDay } satisfies PostConfig));
+  await redis.set(getPostConfigKey(postId), JSON.stringify(config));
 };

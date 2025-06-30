@@ -3,20 +3,12 @@ import { Devvit, Post } from '@devvit/public-api';
 // Side effect import to bundle the server. The /index is required for server splitting.
 import '../server/index';
 import { defineConfig } from '@devvit/server';
-import { postConfigNew } from '../server/core/post';
 
 defineConfig({
-  name: '[Bolt] Word Guesser',
+  name: '[Bolt] Magic 8-Ball',
   entry: 'index.html',
   height: 'tall',
   menu: { enable: false },
-  // TODO: Cannot use without ability to pass in more metadata
-  // menu: {
-  //   enable: true,
-  //   label: 'New Word Guesser Post',
-  //   postTitle: 'Word Guesser',
-  //   preview: <Preview />,
-  // },
 });
 
 export const Preview: Devvit.BlockComponent<{ text?: string }> = ({ text = 'Loading...' }) => {
@@ -40,10 +32,9 @@ export const Preview: Devvit.BlockComponent<{ text?: string }> = ({ text = 'Load
   );
 };
 
-// TODO: Remove this when defineConfig allows webhooks before post creation
+// Menu item to create new Magic 8-Ball posts
 Devvit.addMenuItem({
-  // Please update as you work on your idea!
-  label: '[Bolt Word Guesser]: New Post',
+  label: '[Bolt Magic 8-Ball]: New Post',
   location: 'subreddit',
   forUserType: 'moderator',
   onPress: async (_event, context) => {
@@ -53,16 +44,12 @@ Devvit.addMenuItem({
     try {
       const subreddit = await reddit.getCurrentSubreddit();
       post = await reddit.submitPost({
-        // Title of the post. You'll want to update!
-        title: 'Word Guesser',
+        title: '🎱 Magic 8-Ball - Ask Your Question!',
         subredditName: subreddit.name,
-        preview: <Preview />,
+        preview: <Preview text="Magic 8-Ball is ready to answer your questions!" />,
       });
-      await postConfigNew({
-        redis: context.redis,
-        postId: post.id,
-      });
-      ui.showToast({ text: 'Created post!' });
+      
+      ui.showToast({ text: 'Magic 8-Ball post created!' });
       ui.navigateTo(post.url);
     } catch (error) {
       if (post) {
@@ -71,7 +58,7 @@ Devvit.addMenuItem({
       if (error instanceof Error) {
         ui.showToast({ text: `Error creating post: ${error.message}` });
       } else {
-        ui.showToast({ text: 'Error creating post!' });
+        ui.showToast({ text: 'Error creating Magic 8-Ball post!' });
       }
     }
   },

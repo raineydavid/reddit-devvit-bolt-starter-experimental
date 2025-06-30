@@ -1,29 +1,29 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { Keyboard } from './Keyboard';
-import { LetterState, CheckResponse } from '../shared/types/game';
+import React, { useState, useCallback } from 'react';
+import { EightBallResponse } from '../shared/types/game';
 import packageJson from '../../package.json';
 
-const WORD_LENGTH = 5;
-const MAX_GUESSES = 6;
-
-interface Tile {
-  letter: string;
-  state: LetterState;
-}
-
-const icons: Record<LetterState, string | null> = {
-  correct: '🟩',
-  present: '🟨',
-  absent: '⬜',
-  initial: null,
-};
-
-const genResultGrid = (currentBoard: Tile[][], lastRowIndex: number): string => {
-  return currentBoard
-    .slice(0, lastRowIndex + 1)
-    .map((row) => row.map((tile) => icons[tile.state] || ' ').join(''))
-    .join('\n');
-};
+const EIGHT_BALL_ANSWERS = [
+  "It is certain",
+  "Reply hazy, try again",
+  "Don't count on it",
+  "It is decidedly so",
+  "Ask again later",
+  "My reply is no",
+  "Without a doubt",
+  "Better not tell you now",
+  "My sources say no",
+  "Yes definitely",
+  "Cannot predict now",
+  "Outlook not so good",
+  "You may rely on it",
+  "Concentrate and ask again",
+  "Very doubtful",
+  "As I see it, yes",
+  "Most likely",
+  "Outlook good",
+  "Yes",
+  "Signs point to yes"
+];
 
 function extractSubredditName(): string | null {
   const devCommand = packageJson.scripts?.['dev:devvit'];
@@ -33,7 +33,6 @@ function extractSubredditName(): string | null {
     return null;
   }
 
-  // Match the args after 'devvit playtest'
   const argsMatch = devCommand.match(/devvit\s+playtest\s+(.*)/);
   if (!argsMatch || !argsMatch[1]) {
     console.warn('Could not parse arguments in dev:devvit script.');
@@ -41,8 +40,6 @@ function extractSubredditName(): string | null {
   }
 
   const args = argsMatch[1].trim().split(/\s+/);
-
-  // Find the first token that is not a flag (doesn't start with "-" or "--")
   const subreddit = args.find((arg) => !arg.startsWith('-'));
 
   if (!subreddit) {
@@ -57,7 +54,7 @@ const Banner = () => {
   const subreddit = extractSubredditName();
   if (!subreddit) {
     return (
-      <div className="w-full bg-red-600 text-white p-4 text-center mb-4">
+      <div className="w-full bg-purple-600 text-white p-4 text-center mb-4">
         Please visit your playtest subreddit to play the game with network functionality.
       </div>
     );
@@ -66,7 +63,7 @@ const Banner = () => {
   const subredditUrl = `https://www.reddit.com/r/${subreddit}`;
 
   return (
-    <div className="w-full bg-red-600 text-white p-4 text-center mb-4">
+    <div className="w-full bg-purple-600 text-white p-4 text-center mb-4">
       Please visit{' '}
       <a
         href={subredditUrl}
@@ -83,241 +80,151 @@ const Banner = () => {
 };
 
 export const Game: React.FC = () => {
-  const [board, setBoard] = useState<Tile[][]>(
-    Array.from({ length: MAX_GUESSES }, () =>
-      Array.from({ length: WORD_LENGTH }, () => ({
-        letter: '',
-        state: 'initial' as LetterState,
-      }))
-    )
-  );
-  const [currentRowIndex, setCurrentRowIndex] = useState(0);
-  const [currentColIndex, setCurrentColIndex] = useState(0);
-  const [letterStates, setLetterStates] = useState<Record<string, LetterState>>({});
-  const [message, setMessage] = useState('');
-  const [shakeRowIndex, setShakeRowIndex] = useState(-1);
-  const [success, setSuccess] = useState(false);
-  const [allowInput, setAllowInput] = useState(true);
-  const [grid, setGrid] = useState('');
+  const [question, setQuestion] = useState('');
+  const [answer, setAnswer] = useState('');
+  const [isShaking, setIsShaking] = useState(false);
+  const [isRevealing, setIsRevealing] = useState(false);
   const [showBanner, setShowBanner] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
 
-  useEffect(() => {
+  React.useEffect(() => {
     const hostname = window.location.hostname;
     setShowBanner(!hostname.endsWith('devvit.net'));
   }, []);
 
-  const showMessage = useCallback((msg: string, time = 2000) => {
-    setMessage(msg);
-    if (time > 0) {
-      setTimeout(() => {
-        setMessage('');
-      }, time);
+  const askQuestion = useCallback(async () => {
+    if (!question.trim()) {
+      return;
     }
-  }, []);
 
-  const shake = useCallback(() => {
-    setShakeRowIndex(currentRowIndex);
-    setTimeout(() => {
-      setShakeRowIndex(-1);
-    }, 1000);
-  }, [currentRowIndex]);
+    setIsLoading(true);
+    setAnswer('');
+    setIsShaking(true);
 
-  const onKey = useCallback(
-    async (key: string) => {
-      if (!allowInput || success) return;
+    try {
+      const response = await fetch('/api/ask', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ question: question.trim() }),
+      });
 
-      const currentBoardRow = board[currentRowIndex];
-      if (!currentBoardRow) return; // Should not happen
+      const result = (await response.json()) as EightBallResponse;
 
-      if (/^[a-zA-Z]$/.test(key) && key.length === 1) {
-        if (currentColIndex < WORD_LENGTH) {
-          const newBoard = board.map((row) => [...row]); // Create a deep copy
-          const tileToUpdate = newBoard[currentRowIndex]?.[currentColIndex];
-          if (tileToUpdate) {
-            tileToUpdate.letter = key.toLowerCase();
-            tileToUpdate.state = 'initial';
-            setBoard(newBoard);
-            setCurrentColIndex(currentColIndex + 1);
-          }
-        }
-      } else if (key === 'Backspace') {
-        if (currentColIndex > 0) {
-          const newBoard = board.map((row) => [...row]);
-          const tileToUpdate = newBoard[currentRowIndex]?.[currentColIndex - 1];
-          if (tileToUpdate) {
-            tileToUpdate.letter = '';
-            tileToUpdate.state = 'initial';
-            setBoard(newBoard);
-            setCurrentColIndex(currentColIndex - 1);
-          }
-        }
-      } else if (key === 'Enter') {
-        if (currentColIndex === WORD_LENGTH) {
-          const guess = currentBoardRow.map((tile) => tile.letter).join('');
-
-          setAllowInput(false);
-          try {
-            const response = await fetch('/api/check', {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({ guess }),
-            });
-            const result = (await response.json()) as CheckResponse;
-
-            if (result.status === 'error') {
-              showMessage(result.message || 'Error checking word');
-              setAllowInput(true);
-              return;
-            }
-
-            // status is 'success' from here
-            if (result.exists === false) {
-              shake();
-              showMessage('Not in word list');
-              setAllowInput(true);
-              return;
-            }
-
-            const newBoard = board.map((row) => [...row]);
-            const newLetterStates = { ...letterStates };
-            const serverCheckedRow = newBoard[currentRowIndex];
-
-            if (serverCheckedRow) {
-              result.correct.forEach((letterResult, i) => {
-                const tile = serverCheckedRow[i];
-                if (tile) {
-                  tile.state = letterResult;
-                  if (tile.letter) {
-                    const letterKey = tile.letter;
-                    const currentKeyState = newLetterStates[letterKey];
-
-                    if (letterResult === 'correct') {
-                      newLetterStates[letterKey] = 'correct';
-                    } else if (letterResult === 'present' && currentKeyState !== 'correct') {
-                      newLetterStates[letterKey] = 'present';
-                    } else if (
-                      letterResult === 'absent' &&
-                      currentKeyState !== 'correct' &&
-                      currentKeyState !== 'present'
-                    ) {
-                      newLetterStates[letterKey] = 'absent';
-                    } else if (!currentKeyState) {
-                      // If no state yet, assign current result
-                      newLetterStates[letterKey] = letterResult;
-                    }
-                  }
-                }
-              });
-              setBoard(newBoard);
-              setLetterStates(newLetterStates);
-            }
-
-            if (result.solved) {
-              setSuccess(true);
-              setTimeout(() => {
-                if (
-                  newBoard &&
-                  typeof currentRowIndex === 'number' &&
-                  currentRowIndex < newBoard.length
-                ) {
-                  setGrid(genResultGrid(newBoard, currentRowIndex));
-                }
-                showMessage(
-                  ['Genius', 'Magnificent', 'Impressive', 'Splendid', 'Great', 'Phew'][
-                    currentRowIndex
-                  ] || 'Well Done!',
-                  -1
-                );
-              }, 1600);
-            } else if (currentRowIndex < MAX_GUESSES - 1) {
-              setCurrentRowIndex(currentRowIndex + 1);
-              setCurrentColIndex(0);
-              setTimeout(() => setAllowInput(true), 1600);
-            } else {
-              showMessage(`Game Over! The word was: TODO - get word from server`, -1); // Placeholder for actual word
-              setTimeout(() => setAllowInput(false), 1600);
-            }
-          } catch (error) {
-            console.error('Error checking word:', error);
-            showMessage('Network error, please try again.');
-            setAllowInput(true);
-          }
-        } else {
-          shake();
-          showMessage('Not enough letters');
-        }
+      if (result.status === 'error') {
+        setAnswer('Error: ' + result.message);
+        setIsShaking(false);
+        setIsLoading(false);
+        return;
       }
-    },
-    [allowInput, success, currentColIndex, board, currentRowIndex, letterStates, shake, showMessage]
-  );
 
-  useEffect(() => {
-    const handleKeyup = (e: KeyboardEvent) => {
-      void onKey(e.key); // Using void as onKey is async but we don't need to await its result here
-    };
-    window.addEventListener('keyup', handleKeyup);
-    return () => {
-      window.removeEventListener('keyup', handleKeyup);
-    };
-  }, [onKey]);
+      // Simulate shaking animation
+      setTimeout(() => {
+        setIsShaking(false);
+        setIsRevealing(true);
+        setAnswer(result.answer);
+        
+        setTimeout(() => {
+          setIsRevealing(false);
+          setIsLoading(false);
+        }, 1000);
+      }, 2000);
 
-  useEffect(() => {
-    const onResize = () => {
-      document.body.style.setProperty('--vh', `${window.innerHeight}px`);
-    };
-    window.addEventListener('resize', onResize);
-    onResize();
-    return () => {
-      window.removeEventListener('resize', onResize);
-    };
-  }, []);
+    } catch (error) {
+      console.error('Error asking question:', error);
+      setAnswer('Network error, please try again.');
+      setIsShaking(false);
+      setIsLoading(false);
+    }
+  }, [question]);
+
+  const handleKeyPress = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !isLoading) {
+      askQuestion();
+    }
+  };
 
   return (
-    <div className="flex flex-col h-full items-center pt-2 pb-2 box-border">
+    <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 flex flex-col items-center justify-center p-4">
       {showBanner && <Banner />}
-      {message && (
-        <div className="message">
-          {message}
-          {grid && <pre className="text-xs whitespace-pre-wrap">{grid}</pre>}
-        </div>
-      )}
-      <header className="w-full max-w-md px-2">
-        <h1 className="text-4xl font-bold tracking-wider my-2">Word Guesser</h1>
-      </header>
+      
+      <div className="text-center max-w-md w-full">
+        <h1 className="text-4xl font-bold text-white mb-2 tracking-wider">
+          🎱 Magic 8-Ball
+        </h1>
+        <p className="text-purple-200 mb-8 text-lg">
+          Ask a question and discover your fate...
+        </p>
 
-      <div id="board" className="mb-4">
-        {board.map((row, rowIndex) => (
-          <div
-            key={rowIndex}
-            className={`row ${shakeRowIndex === rowIndex ? 'shake' : ''} ${
-              success && currentRowIndex === rowIndex ? 'jump' : ''
-            }`}
+        {/* Question Input */}
+        <div className="mb-8">
+          <input
+            type="text"
+            value={question}
+            onChange={(e) => setQuestion(e.target.value)}
+            onKeyPress={handleKeyPress}
+            placeholder="Ask your question..."
+            disabled={isLoading}
+            className="w-full px-4 py-3 text-lg rounded-lg bg-white/10 backdrop-blur-sm border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-purple-400 focus:border-transparent transition-all duration-300"
+          />
+        </div>
+
+        {/* Magic 8-Ball */}
+        <div className="relative mb-8">
+          <div 
+            className={`w-64 h-64 mx-auto rounded-full bg-gradient-to-br from-gray-800 to-black border-4 border-gray-600 shadow-2xl cursor-pointer transition-all duration-300 ${
+              isShaking ? 'animate-bounce' : 'hover:scale-105'
+            } ${isRevealing ? 'animate-pulse' : ''}`}
+            onClick={askQuestion}
           >
-            {row.map((tile, tileIndex) => (
-              <div
-                key={tileIndex}
-                className={`tile ${tile.letter ? 'filled' : ''} ${tile.state !== 'initial' ? 'revealed' : ''}`}
-              >
-                <div className="front" style={{ transitionDelay: `${tileIndex * 300}ms` }}>
-                  {tile.letter}
-                </div>
-                <div
-                  className={`back ${tile.state}`}
-                  style={{
-                    transitionDelay: `${tileIndex * 300}ms`,
-                    animationDelay: `${tileIndex * 100}ms`,
-                  }}
-                >
-                  {tile.letter}
+            {/* 8-Ball Surface */}
+            <div className="absolute inset-4 rounded-full bg-gradient-to-br from-gray-700 to-gray-900 shadow-inner">
+              {/* Number 8 */}
+              <div className="absolute top-8 left-1/2 transform -translate-x-1/2">
+                <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center">
+                  <span className="text-2xl font-bold text-black">8</span>
                 </div>
               </div>
-            ))}
+              
+              {/* Answer Window */}
+              <div className="absolute bottom-8 left-1/2 transform -translate-x-1/2 w-32 h-20">
+                <div className="w-full h-full bg-gradient-to-br from-blue-900 to-purple-900 rounded-lg border-2 border-blue-400 flex items-center justify-center p-2 shadow-inner">
+                  {isLoading ? (
+                    <div className="text-white text-xs text-center animate-pulse">
+                      {isShaking ? '...' : 'Thinking...'}
+                    </div>
+                  ) : answer ? (
+                    <div className="text-white text-xs text-center leading-tight font-medium">
+                      {answer}
+                    </div>
+                  ) : (
+                    <div className="text-blue-300 text-xs text-center opacity-60">
+                      Ask a question
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
           </div>
-        ))}
+        </div>
+
+        {/* Ask Button */}
+        <button
+          onClick={askQuestion}
+          disabled={!question.trim() || isLoading}
+          className="px-8 py-3 bg-gradient-to-r from-purple-600 to-blue-600 text-white font-semibold rounded-lg shadow-lg hover:from-purple-700 hover:to-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-300 transform hover:scale-105 active:scale-95"
+        >
+          {isLoading ? 'Consulting the spirits...' : 'Ask the Magic 8-Ball'}
+        </button>
+
+        {/* Instructions */}
+        <div className="mt-8 text-purple-200 text-sm space-y-2">
+          <p>💫 Think of a yes/no question</p>
+          <p>🎱 Click the 8-ball or press Enter</p>
+          <p>✨ Receive your mystical answer</p>
+        </div>
       </div>
-      <Keyboard onKey={onKey} letterStates={letterStates} />
     </div>
   );
 };

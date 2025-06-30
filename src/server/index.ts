@@ -1,8 +1,6 @@
 import express from 'express';
 import { createServer, getContext, getServerPort } from '@devvit/server';
-import { CheckResponse, InitResponse, LetterState } from '../shared/types/game';
-import { postConfigGet, postConfigNew, postConfigMaybeGet } from './core/post';
-import { allWords } from './core/words';
+import { EightBallResponse } from '../shared/types/game';
 import { getRedis } from '@devvit/redis';
 
 const app = express();
@@ -16,53 +14,34 @@ app.use(express.text());
 
 const router = express.Router();
 
-router.get<{ postId: string }, InitResponse | { status: string; message: string }>(
-  '/api/init',
-  async (_req, res): Promise<void> => {
-    const { postId } = getContext();
-    const redis = getRedis();
+// Magic 8-Ball answers
+const EIGHT_BALL_ANSWERS = [
+  "It is certain",
+  "Reply hazy, try again", 
+  "Don't count on it",
+  "It is decidedly so",
+  "Ask again later",
+  "My reply is no",
+  "Without a doubt",
+  "Better not tell you now",
+  "My sources say no",
+  "Yes definitely",
+  "Cannot predict now",
+  "Outlook not so good",
+  "You may rely on it",
+  "Concentrate and ask again",
+  "Very doubtful",
+  "As I see it, yes",
+  "Most likely",
+  "Outlook good",
+  "Yes",
+  "Signs point to yes"
+];
 
-    if (!postId) {
-      console.error('API Init Error: postId not found in devvit context');
-      res.status(400).json({
-        status: 'error',
-        message: 'postId is required but missing from context',
-      });
-      return;
-    }
-
-    try {
-      let config = await postConfigMaybeGet({ redis, postId });
-      if (!config || !config.wordOfTheDay) {
-        console.log(`No valid config found for post ${postId}, creating new one.`);
-        await postConfigNew({ redis: getRedis(), postId });
-        config = await postConfigGet({ redis, postId });
-      }
-
-      if (!config.wordOfTheDay) {
-        console.error(
-          `API Init Error: wordOfTheDay still not found for post ${postId} after attempting creation.`
-        );
-        throw new Error('Failed to initialize game configuration.');
-      }
-
-      res.json({
-        status: 'success',
-        postId: postId,
-      });
-    } catch (error) {
-      console.error(`API Init Error for post ${postId}:`, error);
-      const message =
-        error instanceof Error ? error.message : 'Unknown error during initialization';
-      res.status(500).json({ status: 'error', message });
-    }
-  }
-);
-
-router.post<{ postId: string }, CheckResponse, { guess: string }>(
-  '/api/check',
+router.post<{ postId: string }, EightBallResponse, { question: string }>(
+  '/api/ask',
   async (req, res): Promise<void> => {
-    const { guess } = req.body;
+    const { question } = req.body;
     const { postId, userId } = getContext();
     const redis = getRedis();
 
@@ -74,76 +53,94 @@ router.post<{ postId: string }, CheckResponse, { guess: string }>(
       res.status(400).json({ status: 'error', message: 'Must be logged in' });
       return;
     }
-    if (!guess) {
-      res.status(400).json({ status: 'error', message: 'Guess is required' });
+    if (!question || question.trim().length === 0) {
+      res.status(400).json({ status: 'error', message: 'Question is required' });
       return;
     }
 
-    const config = await postConfigGet({ redis, postId });
-    const { wordOfTheDay } = config;
+    try {
+      // Store the question for analytics/history if needed
+      const questionKey = `question:${postId}:${userId}:${Date.now()}`;
+      await redis.set(questionKey, question.trim());
+      
+      // Set expiration for 24 hours to keep storage clean
+      await redis.expire(questionKey, 86400);
 
-    const normalizedGuess = guess.toLowerCase();
+      // Get a random answer
+      const randomIndex = Math.floor(Math.random() * EIGHT_BALL_ANSWERS.length);
+      const answer = EIGHT_BALL_ANSWERS[randomIndex];
 
-    if (normalizedGuess.length !== 5) {
-      res.status(400).json({ status: 'error', message: 'Guess must be 5 letters long' });
-      return;
-    }
+      if (!answer) {
+        res.status(500).json({ status: 'error', message: 'Failed to get answer' });
+        return;
+      }
 
-    const wordExists = allWords.includes(normalizedGuess);
+      // Store the answer as well for potential history feature
+      const answerKey = `answer:${postId}:${userId}:${Date.now()}`;
+      await redis.set(answerKey, JSON.stringify({ question: question.trim(), answer }));
+      await redis.expire(answerKey, 86400);
 
-    if (!wordExists) {
       res.json({
         status: 'success',
-        exists: false,
-        solved: false,
-        correct: Array(5).fill('initial') as [
-          LetterState,
-          LetterState,
-          LetterState,
-          LetterState,
-          LetterState,
-        ],
+        answer,
+        animation: 'reveal'
       });
+    } catch (error) {
+      console.error('Error processing Magic 8-Ball question:', error);
+      res.status(500).json({ 
+        status: 'error', 
+        message: 'Internal server error while consulting the Magic 8-Ball' 
+      });
+    }
+  }
+);
+
+// Optional: Get question history for a user
+router.get<{ postId: string }, { status: string; history?: Array<{ question: string; answer: string; timestamp: number }> }>(
+  '/api/history',
+  async (_req, res): Promise<void> => {
+    const { postId, userId } = getContext();
+    const redis = getRedis();
+
+    if (!postId) {
+      res.status(400).json({ status: 'error', message: 'postId is required' });
+      return;
+    }
+    if (!userId) {
+      res.status(400).json({ status: 'error', message: 'Must be logged in' });
       return;
     }
 
-    const answerLetters = wordOfTheDay.split('');
-    const resultCorrect: LetterState[] = Array(5).fill('initial');
-    let solved = true;
-    const guessLetters = normalizedGuess.split('');
-
-    for (let i = 0; i < 5; i++) {
-      if (guessLetters[i] === answerLetters[i]) {
-        resultCorrect[i] = 'correct';
-        answerLetters[i] = '';
-      } else {
-        solved = false;
-      }
-    }
-
-    for (let i = 0; i < 5; i++) {
-      if (resultCorrect[i] === 'initial') {
-        const guessedLetter = guessLetters[i]!;
-        const presentIndex = answerLetters.indexOf(guessedLetter);
-        if (presentIndex !== -1) {
-          resultCorrect[i] = 'present';
-          answerLetters[presentIndex] = '';
+    try {
+      // Get recent answers for this user in this post
+      const pattern = `answer:${postId}:${userId}:*`;
+      const keys = await redis.keys(pattern);
+      
+      const history = [];
+      for (const key of keys.slice(-10)) { // Get last 10 questions
+        const data = await redis.get(key);
+        if (data) {
+          const parsed = JSON.parse(data);
+          const timestamp = parseInt(key.split(':').pop() || '0');
+          history.push({
+            question: parsed.question,
+            answer: parsed.answer,
+            timestamp
+          });
         }
       }
-    }
 
-    for (let i = 0; i < 5; i++) {
-      if (resultCorrect[i] === 'initial') {
-        resultCorrect[i] = 'absent';
-      }
-    }
+      // Sort by timestamp descending (newest first)
+      history.sort((a, b) => b.timestamp - a.timestamp);
 
-    res.json({
-      status: 'success',
-      exists: true,
-      solved,
-      correct: resultCorrect as [LetterState, LetterState, LetterState, LetterState, LetterState],
-    });
+      res.json({
+        status: 'success',
+        history
+      });
+    } catch (error) {
+      console.error('Error getting question history:', error);
+      res.status(500).json({ status: 'error', message: 'Failed to get history' });
+    }
   }
 );
 
@@ -155,4 +152,4 @@ const port = getServerPort();
 
 const server = createServer(app);
 server.on('error', (err) => console.error(`server error; ${err.stack}`));
-server.listen(port, () => console.log(`http://localhost:${port}`));
+server.listen(port, () => console.log(`Magic 8-Ball server running on http://localhost:${port}`));
