@@ -1,6 +1,6 @@
 import express from 'express';
 import { createServer, getContext, getServerPort } from '@devvit/server';
-import { EightBallResponse } from '../shared/types/game';
+import { EightBallResponse, SubredditInfo } from '../shared/types/game';
 import { getRedis } from '@devvit/redis';
 
 const app = express();
@@ -14,8 +14,8 @@ app.use(express.text());
 
 const router = express.Router();
 
-// Magic 8-Ball answers
-const EIGHT_BALL_ANSWERS = [
+// Generic Magic 8-Ball answers (fallback)
+const GENERIC_ANSWERS = [
   "It is certain",
   "Reply hazy, try again", 
   "Don't count on it",
@@ -38,11 +38,76 @@ const EIGHT_BALL_ANSWERS = [
   "Signs point to yes"
 ];
 
+// Community-specific answer generators
+const generateCommunityAnswers = (subredditInfo: SubredditInfo): string[] => {
+  const { name, displayName, subscribers, rules } = subredditInfo;
+  const communityAnswers = [
+    `The mods of r/${name} say yes`,
+    `According to r/${name} rules, absolutely`,
+    `The r/${name} community believes so`,
+    `Ask the r/${name} daily thread`,
+    `Check the r/${name} wiki first`,
+    `The r/${name} hivemind says no`,
+    `Post it in r/${name} and find out`,
+    `The r/${name} automod says maybe`,
+    `r/${name} veterans would agree`,
+    `That's against r/${name} guidelines`,
+    `r/${name} would upvote this`,
+    `The r/${name} FAQ has your answer`,
+    `Ask r/${name} in the weekly thread`,
+    `r/${name} mods are watching...`,
+    `The spirit of r/${name} says yes`,
+  ];
+
+  // Add subscriber-based answers
+  if (subscribers) {
+    if (subscribers > 100000) {
+      communityAnswers.push(`With ${Math.floor(subscribers/1000)}k members, r/${name} says yes`);
+      communityAnswers.push(`${Math.floor(subscribers/1000)}k r/${name} users can't be wrong`);
+    } else if (subscribers > 1000) {
+      communityAnswers.push(`All ${Math.floor(subscribers/1000)}k r/${name} members agree`);
+    }
+  }
+
+  // Add rule-based answers
+  if (rules && rules.length > 0) {
+    communityAnswers.push(`Check rule ${Math.floor(Math.random() * rules.length) + 1} of r/${name}`);
+    communityAnswers.push(`The r/${name} rules are clear on this`);
+  }
+
+  // Mix community answers with some generic ones
+  return [...communityAnswers, ...GENERIC_ANSWERS.slice(0, 5)];
+};
+
+// Get subreddit information
+const getSubredditInfo = async (context: any): Promise<SubredditInfo | null> => {
+  try {
+    const subreddit = await context.reddit.getCurrentSubreddit();
+    const rules = await context.reddit.getSubredditRules(subreddit.name);
+    
+    return {
+      name: subreddit.name,
+      displayName: subreddit.displayName || subreddit.name,
+      description: subreddit.description,
+      subscribers: subreddit.subscribers,
+      rules: rules?.map(rule => ({
+        shortName: rule.shortName || rule.violationReason || 'Rule',
+        description: rule.description || ''
+      })) || [],
+      flairEnabled: subreddit.userFlairEnabled || false
+    };
+  } catch (error) {
+    console.error('Error getting subreddit info:', error);
+    return null;
+  }
+};
+
 router.post<{ postId: string }, EightBallResponse, { question: string }>(
   '/api/ask',
   async (req, res): Promise<void> => {
     const { question } = req.body;
-    const { postId, userId } = getContext();
+    const context = getContext();
+    const { postId, userId } = context;
     const redis = getRedis();
 
     if (!postId) {
@@ -59,6 +124,19 @@ router.post<{ postId: string }, EightBallResponse, { question: string }>(
     }
 
     try {
+      // Get subreddit information for community-specific answers
+      const subredditInfo = await getSubredditInfo(context);
+      let availableAnswers = GENERIC_ANSWERS;
+      
+      if (subredditInfo) {
+        availableAnswers = generateCommunityAnswers(subredditInfo);
+        
+        // Store subreddit info for caching (expires in 1 hour)
+        const subredditKey = `subreddit_info:${subredditInfo.name}`;
+        await redis.set(subredditKey, JSON.stringify(subredditInfo));
+        await redis.expire(subredditKey, 3600);
+      }
+
       // Store the question for analytics/history if needed
       const questionKey = `question:${postId}:${userId}:${Date.now()}`;
       await redis.set(questionKey, question.trim());
@@ -67,8 +145,8 @@ router.post<{ postId: string }, EightBallResponse, { question: string }>(
       await redis.expire(questionKey, 86400);
 
       // Get a random answer
-      const randomIndex = Math.floor(Math.random() * EIGHT_BALL_ANSWERS.length);
-      const answer = EIGHT_BALL_ANSWERS[randomIndex];
+      const randomIndex = Math.floor(Math.random() * availableAnswers.length);
+      const answer = availableAnswers[randomIndex];
 
       if (!answer) {
         res.status(500).json({ status: 'error', message: 'Failed to get answer' });
@@ -77,12 +155,17 @@ router.post<{ postId: string }, EightBallResponse, { question: string }>(
 
       // Store the answer as well for potential history feature
       const answerKey = `answer:${postId}:${userId}:${Date.now()}`;
-      await redis.set(answerKey, JSON.stringify({ question: question.trim(), answer }));
+      await redis.set(answerKey, JSON.stringify({ 
+        question: question.trim(), 
+        answer,
+        subreddit: subredditInfo?.name 
+      }));
       await redis.expire(answerKey, 86400);
 
       res.json({
         status: 'success',
         answer,
+        subreddit: subredditInfo?.name,
         animation: 'reveal'
       });
     } catch (error) {
@@ -91,6 +174,39 @@ router.post<{ postId: string }, EightBallResponse, { question: string }>(
         status: 'error', 
         message: 'Internal server error while consulting the Magic 8-Ball' 
       });
+    }
+  }
+);
+
+// Get subreddit info endpoint
+router.get<{ postId: string }, { status: string; subreddit?: SubredditInfo }>(
+  '/api/subreddit',
+  async (_req, res): Promise<void> => {
+    const context = getContext();
+    const { postId } = context;
+    const redis = getRedis();
+
+    if (!postId) {
+      res.status(400).json({ status: 'error', message: 'postId is required' });
+      return;
+    }
+
+    try {
+      const subredditInfo = await getSubredditInfo(context);
+      
+      if (subredditInfo) {
+        res.json({
+          status: 'success',
+          subreddit: subredditInfo
+        });
+      } else {
+        res.json({
+          status: 'success'
+        });
+      }
+    } catch (error) {
+      console.error('Error getting subreddit info:', error);
+      res.status(500).json({ status: 'error', message: 'Failed to get subreddit info' });
     }
   }
 );

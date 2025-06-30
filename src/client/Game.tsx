@@ -1,29 +1,6 @@
 import React, { useState, useCallback } from 'react';
-import { EightBallResponse } from '../shared/types/game';
+import { EightBallResponse, SubredditInfo } from '../shared/types/game';
 import packageJson from '../../package.json';
-
-const EIGHT_BALL_ANSWERS = [
-  "It is certain",
-  "Reply hazy, try again",
-  "Don't count on it",
-  "It is decidedly so",
-  "Ask again later",
-  "My reply is no",
-  "Without a doubt",
-  "Better not tell you now",
-  "My sources say no",
-  "Yes definitely",
-  "Cannot predict now",
-  "Outlook not so good",
-  "You may rely on it",
-  "Concentrate and ask again",
-  "Very doubtful",
-  "As I see it, yes",
-  "Most likely",
-  "Outlook good",
-  "Yes",
-  "Signs point to yes"
-];
 
 function extractSubredditName(): string | null {
   const devCommand = packageJson.scripts?.['dev:devvit'];
@@ -82,6 +59,7 @@ const Banner = () => {
 export const Game: React.FC = () => {
   const [question, setQuestion] = useState('');
   const [answer, setAnswer] = useState('');
+  const [subredditInfo, setSubredditInfo] = useState<SubredditInfo | null>(null);
   const [isShaking, setIsShaking] = useState(false);
   const [isRevealing, setIsRevealing] = useState(false);
   const [showBanner, setShowBanner] = useState(false);
@@ -90,7 +68,24 @@ export const Game: React.FC = () => {
   React.useEffect(() => {
     const hostname = window.location.hostname;
     setShowBanner(!hostname.endsWith('devvit.net'));
+    
+    // Load subreddit info when component mounts
+    if (hostname.endsWith('devvit.net')) {
+      loadSubredditInfo();
+    }
   }, []);
+
+  const loadSubredditInfo = async () => {
+    try {
+      const response = await fetch('/api/subreddit');
+      const result = await response.json();
+      if (result.status === 'success' && result.subreddit) {
+        setSubredditInfo(result.subreddit);
+      }
+    } catch (error) {
+      console.error('Error loading subreddit info:', error);
+    }
+  };
 
   const askQuestion = useCallback(async () => {
     if (!question.trim()) {
@@ -125,6 +120,11 @@ export const Game: React.FC = () => {
         setIsRevealing(true);
         setAnswer(result.answer);
         
+        // Update subreddit info if provided
+        if (result.subreddit && !subredditInfo) {
+          setSubredditInfo({ name: result.subreddit } as SubredditInfo);
+        }
+        
         setTimeout(() => {
           setIsRevealing(false);
           setIsLoading(false);
@@ -151,11 +151,20 @@ export const Game: React.FC = () => {
       
       <div className="text-center max-w-md w-full">
         <h1 className="text-4xl font-bold text-white mb-2 tracking-wider">
-          🎱 Magic 8-Ball
+          🎱 {subredditInfo ? `r/${subredditInfo.name}` : 'Magic'} 8-Ball
         </h1>
-        <p className="text-purple-200 mb-8 text-lg">
-          Ask a question and discover your fate...
+        <p className="text-purple-200 mb-4 text-lg">
+          {subredditInfo 
+            ? `Ask a question about r/${subredditInfo.name}...` 
+            : 'Ask a question and discover your fate...'
+          }
         </p>
+        
+        {subredditInfo && subredditInfo.subscribers && (
+          <p className="text-purple-300 mb-6 text-sm">
+            🌟 Powered by {Math.floor(subredditInfo.subscribers / 1000)}k community members
+          </p>
+        )}
 
         {/* Question Input */}
         <div className="mb-8">
@@ -164,7 +173,7 @@ export const Game: React.FC = () => {
             value={question}
             onChange={(e) => setQuestion(e.target.value)}
             onKeyPress={handleKeyPress}
-            placeholder="Ask your question..."
+            placeholder={subredditInfo ? `Ask about r/${subredditInfo.name}...` : "Ask your question..."}
             disabled={isLoading}
             className="w-full px-4 py-3 text-lg rounded-lg bg-white/10 backdrop-blur-sm border border-white/20 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-purple-400 focus:border-transparent transition-all duration-300"
           />
@@ -200,7 +209,7 @@ export const Game: React.FC = () => {
                     </div>
                   ) : (
                     <div className="text-blue-300 text-xs text-center opacity-60">
-                      Ask a question
+                      {subredditInfo ? `Ask r/${subredditInfo.name}` : 'Ask a question'}
                     </div>
                   )}
                 </div>
@@ -215,14 +224,20 @@ export const Game: React.FC = () => {
           disabled={!question.trim() || isLoading}
           className="px-8 py-3 bg-gradient-to-r from-purple-600 to-blue-600 text-white font-semibold rounded-lg shadow-lg hover:from-purple-700 hover:to-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-300 transform hover:scale-105 active:scale-95"
         >
-          {isLoading ? 'Consulting the spirits...' : 'Ask the Magic 8-Ball'}
+          {isLoading 
+            ? (subredditInfo ? `Consulting r/${subredditInfo.name}...` : 'Consulting the spirits...') 
+            : (subredditInfo ? `Ask r/${subredditInfo.name} 8-Ball` : 'Ask the Magic 8-Ball')
+          }
         </button>
 
         {/* Instructions */}
         <div className="mt-8 text-purple-200 text-sm space-y-2">
-          <p>💫 Think of a yes/no question</p>
+          <p>💫 Think of a yes/no question {subredditInfo ? `about r/${subredditInfo.name}` : ''}</p>
           <p>🎱 Click the 8-ball or press Enter</p>
-          <p>✨ Receive your mystical answer</p>
+          <p>✨ Receive your {subredditInfo ? 'community-powered' : 'mystical'} answer</p>
+          {subredditInfo && subredditInfo.rules && subredditInfo.rules.length > 0 && (
+            <p className="text-xs opacity-75">📋 Answers may reference community rules and culture</p>
+          )}
         </div>
       </div>
     </div>

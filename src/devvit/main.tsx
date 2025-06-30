@@ -5,7 +5,7 @@ import '../server/index';
 import { defineConfig } from '@devvit/server';
 
 defineConfig({
-  name: '[Bolt] Magic 8-Ball',
+  name: '[Bolt] Community 8-Ball',
   entry: 'index.html',
   height: 'tall',
   menu: { enable: false },
@@ -34,7 +34,7 @@ export const Preview: Devvit.BlockComponent<{ text?: string }> = ({ text = 'Load
 
 // Menu item to create new Magic 8-Ball posts
 Devvit.addMenuItem({
-  label: '[Bolt Magic 8-Ball]: New Post',
+  label: '[Bolt Community 8-Ball]: New Post',
   location: 'subreddit',
   forUserType: 'moderator',
   onPress: async (_event, context) => {
@@ -44,12 +44,12 @@ Devvit.addMenuItem({
     try {
       const subreddit = await reddit.getCurrentSubreddit();
       post = await reddit.submitPost({
-        title: '🎱 Magic 8-Ball - Ask Your Question!',
+        title: `🎱 r/${subreddit.name} Magic 8-Ball - Ask Your Question!`,
         subredditName: subreddit.name,
-        preview: <Preview text="Magic 8-Ball is ready to answer your questions!" />,
+        preview: <Preview text={`r/${subreddit.name} Magic 8-Ball is ready to answer your community questions!`} />,
       });
       
-      ui.showToast({ text: 'Magic 8-Ball post created!' });
+      ui.showToast({ text: `r/${subreddit.name} Magic 8-Ball post created!` });
       ui.navigateTo(post.url);
     } catch (error) {
       if (post) {
@@ -58,7 +58,7 @@ Devvit.addMenuItem({
       if (error instanceof Error) {
         ui.showToast({ text: `Error creating post: ${error.message}` });
       } else {
-        ui.showToast({ text: 'Error creating Magic 8-Ball post!' });
+        ui.showToast({ text: 'Error creating Community 8-Ball post!' });
       }
     }
   },
