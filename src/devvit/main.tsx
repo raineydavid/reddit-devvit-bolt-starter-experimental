@@ -5,7 +5,7 @@ import '../server/index';
 import { defineConfig } from '@devvit/server';
 
 defineConfig({
-  name: '[Bolt] Community 8-Ball',
+  name: 'Community 8-Ball',
   entry: 'index.html',
   height: 'tall',
   menu: { enable: false },
