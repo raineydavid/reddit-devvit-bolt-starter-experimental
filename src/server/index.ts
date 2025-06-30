@@ -57,6 +57,21 @@ const generateCommunityAnswers = (subredditInfo: SubredditInfo): string[] => {
     `Ask r/${name} in the weekly thread`,
     `r/${name} mods are watching...`,
     `The spirit of r/${name} says yes`,
+    `The r/${name} oracle has spoken: Yes!`,
+    `r/${name}'s collective wisdom says no`,
+    `The ancient scrolls of r/${name} confirm it`,
+    `r/${name}'s magic 8-ball network agrees`,
+    `The r/${name} prophecy foretells: Maybe`,
+    `r/${name}'s crystal ball is cloudy...`,
+    `The r/${name} fortune cookies say yes`,
+    `r/${name}'s tarot cards reveal: No`,
+    `The r/${name} tea leaves suggest: Definitely`,
+    `r/${name}'s cosmic energy says: Ask again`,
+    `The r/${name} universe aligns: Absolutely`,
+    `r/${name}'s mystical forces say: Doubtful`,
+    `The r/${name} spirits whisper: Yes`,
+    `r/${name}'s digital divination: Unclear`,
+    `The r/${name} algorithm predicts: Likely`,
   ];
 
   // Add subscriber-based answers
@@ -166,7 +181,9 @@ router.post<{ postId: string }, EightBallResponse, { question: string }>(
         status: 'success',
         answer,
         subreddit: subredditInfo?.name,
-        animation: 'reveal'
+        animation: 'reveal',
+        confidence: Math.floor(Math.random() * 100) + 1, // Random confidence level
+        mysticalLevel: Math.floor(Math.random() * 5) + 1 // Mystical power level 1-5
       });
     } catch (error) {
       console.error('Error processing Magic 8-Ball question:', error);

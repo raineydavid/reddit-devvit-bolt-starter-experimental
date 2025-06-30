@@ -4,6 +4,8 @@ export type EightBallResponse = Response<{
   answer: string;
   subreddit?: string;
   animation?: 'shake' | 'reveal';
+  confidence?: number;
+  mysticalLevel?: number;
 }>;
 
 export type QuestionSubmitResponse = Response<{
