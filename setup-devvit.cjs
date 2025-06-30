@@ -19,11 +19,11 @@ function updateDevvitName() {
   const content = fs.readFileSync(devvitYamlPath, 'utf8');
   const parsedYaml = yaml.parse(content);
 
-  if (parsedYaml.name === 'vibestreet') {
+  if (parsedYaml.name === 'community-eightball' && parsedYaml.name.includes('community-eightball')) {
     const suffix = generateRandomSuffix(6);
-    parsedYaml.name = `bolt-${suffix}`;
+    parsedYaml.name = `community-eightball-${suffix}`;
     fs.writeFileSync(devvitYamlPath, yaml.stringify(parsedYaml));
-    console.log(`Updated app name to bolt-${suffix}`);
+    console.log(`Updated app name to community-eightball-${suffix}`);
   }
 }
 
